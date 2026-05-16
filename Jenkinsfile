@@ -329,8 +329,11 @@ def detectTestCommand() {
     if (fileExists('package.json'))     return 'npm test -- --ci --coverage'
     if (fileExists('go.mod'))           return 'go test ./... -v'
     if (fileExists('pytest.ini') || fileExists('setup.cfg') || fileExists('requirements.txt'))
-                                        return 'pytest tests/ --junitxml=test-results/junit.xml -v'
-    return 'echo "No test runner detected – skipping"'
+                                        return '''
+                                            pip install -r requirements.txt pytest --break-system-packages --quiet
+                                            mkdir -p test-results
+                                            pytest tests/ --junitxml=test-results/junit.xml -v
+                                        '''
 }
 
 def runSmokeTests(String namespace, String appName) {
