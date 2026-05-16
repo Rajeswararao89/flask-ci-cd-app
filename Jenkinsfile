@@ -355,7 +355,7 @@ def detectTestCommand() {
     if (fileExists('build.gradle'))     return './gradlew test'
     if (fileExists('package.json'))     return 'npm test -- --ci --coverage'
     if (fileExists('go.mod'))           return 'go test ./... -v'
-    if (fileExists('pytest.ini') || fileExists('setup.py') || fileExists('requirements.txt')) return 'pip install pytest flask -q && mkdir -p test-results && python3 -m pytest tests/ --junitxml=test-results/junit.xml -v'
+    if (fileExists('pytest.ini') || fileExists('setup.py') || fileExists('requirements.txt')) return 'python3 -m pip install pytest flask -q && mkdir -p test-results && python3 -m pytest tests/ --junitxml=test-results/junit.xml -v'
     return 'echo "No test runner detected – skipping"'
 }
 
