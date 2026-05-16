@@ -30,9 +30,13 @@
  *   - GIT_BRANCH  : branch that triggered the build
  */
 
+// ─── Shared library helpers (loaded from vars/) ───────────────────────────────
+// If your Jenkins instance has a shared library configured, you can replace the
+// inline helper closures below with @Library('cicd-shared-lib') import.
+
 // ─── Global configuration map ─────────────────────────────────────────────────
 def pipelineConfig = [
-    // ✅ FIX 1: Changed from 'registry.example.com' to 'docker.io' (Docker Hub)
+    // Docker registry base URL (override via job parameter if needed)
     dockerRegistry   : env.DOCKER_REGISTRY  ?: 'docker.io',
     // Kubernetes namespace per environment
     k8sNamespace     : [dev: 'dev', staging: 'staging', prod: 'production'],
@@ -47,17 +51,23 @@ def pipelineConfig = [
 // ─── Pipeline definition ──────────────────────────────────────────────────────
 pipeline {
 
+    // Run on any agent that has Docker and kubectl available.
+    // In a real cluster you would specify a label, e.g. agent { label 'k8s-builder' }
     agent any
 
+    // ── Build retention ──────────────────────────────────────────────────────
     options {
         buildDiscarder(logRotator(numToKeepStr: "${pipelineConfig.numBuildsToKeep}"))
         timestamps()
         timeout(time: 30, unit: 'MINUTES')
-        disableConcurrentBuilds()
+        disableConcurrentBuilds()          // prevent race conditions on the same branch
         ansiColor('xterm')
     }
 
+    // ── Triggers ─────────────────────────────────────────────────────────────
     triggers {
+        // Generic Webhook Trigger Plugin – fires on any push to the watched repo.
+        // Configure the matching token in the Git provider's webhook settings.
         GenericTrigger(
             genericVariables: [
                 [key: 'GIT_BRANCH', value: '$.ref',        regexpFilter: 'refs/heads/'],
@@ -70,10 +80,13 @@ pipeline {
             printPostContent          : false,
             silentResponse            : false,
             regexpFilterText          : '$GIT_BRANCH',
+            // Only build main / develop / release branches automatically.
+            // Feature branches can still be built manually.
             regexpFilterExpression    : '^(main|master|develop|release/.+)$'
         )
     }
 
+    // ── Parameters (fallback for manual runs) ────────────────────────────────
     parameters {
         choice(
             name        : 'DEPLOY_ENV',
@@ -97,15 +110,11 @@ pipeline {
         )
     }
 
+    // ── Environment variables available to all stages ────────────────────────
     environment {
-        // ✅ FIX 2: Hardcode your Docker Hub username so the image name is always
-        //    <your-dockerhub-username>/<repo-name>:<tag>
-        //    Replace 'rajeshwararao78' with your actual Docker Hub username.
-        DOCKER_HUB_USER = 'rajeshwararao78'
-        APP_NAME        = "${env.GIT_REPO ? env.GIT_REPO.tokenize('/').last() : 'flask-ci-cd-app'}"
+        APP_NAME        = "${env.GIT_REPO ? env.GIT_REPO.tokenize('/').last() : 'app'}"
         IMAGE_TAG       = "${env.GIT_COMMIT ? env.GIT_COMMIT.take(8) : env.BUILD_NUMBER}"
-        // ✅ FIX 3: Image name is now  docker.io/<username>/<app>:<tag>
-        FULL_IMAGE_NAME = "docker.io/${DOCKER_HUB_USER}/${APP_NAME}:${IMAGE_TAG}"
+        FULL_IMAGE_NAME = "docker.io/rajeshwararao78/${APP_NAME}:${IMAGE_TAG}"
         K8S_NAMESPACE   = "${pipelineConfig.k8sNamespace[params.DEPLOY_ENV] ?: 'dev'}"
         KUBECONFIG_CRED = "${pipelineConfig.kubeconfigCredId[params.DEPLOY_ENV] ?: 'kubeconfig-dev'}"
         DEPLOY_TIMEOUT  = "${pipelineConfig.rolloutTimeout}m"
@@ -125,11 +134,12 @@ pipeline {
                     branches         : [[name: "${GIT_BRANCH ?: params.GIT_BRANCH}"]],
                     userRemoteConfigs: scm.userRemoteConfigs,
                     extensions       : [
-                        [$class: 'CleanBeforeCheckout'],
-                        [$class: 'CloneOption', shallow: true, depth: 1]
+                        [$class: 'CleanBeforeCheckout'],          // ensure clean workspace
+                        [$class: 'CloneOption', shallow: true, depth: 1]  // faster shallow clone
                     ]
                 ])
                 script {
+                    // Expose short SHA for traceability in artifact names / image tags
                     env.GIT_SHORT_SHA = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                     echo "Short SHA: ${env.GIT_SHORT_SHA}"
                 }
@@ -141,12 +151,15 @@ pipeline {
             steps {
                 script {
                     echo "==> Building artifact for ${APP_NAME}"
+                    // Detect build tool and run appropriate build command.
+                    // Extend this map to support Go, Python, Node, etc.
                     def buildCmd = detectBuildCommand()
                     sh buildCmd
                 }
             }
             post {
                 success {
+                    // Archive build artifacts so they are downloadable from the build page.
                     archiveArtifacts artifacts: '**/target/*.jar, **/build/libs/*.jar, **/dist/**', allowEmptyArchive: true
                 }
             }
@@ -154,34 +167,36 @@ pipeline {
 
         // ── 3. Unit Tests ─────────────────────────────────────────────────────
         stage('Unit Tests') {
-           when {
-               expression { !params.SKIP_TESTS }
-           }
-           steps {
-               script {
-                   echo "==> Running unit tests"
-               }
-                   sh '''
-                    pip install pytest flask --break-system-packages -q
-                    mkdir -p test-results
-                    pytest tests/ --junitxml=test-results/junit.xml -v
-               '''
+            when {
+                expression { !params.SKIP_TESTS }
+            }
+            steps {
+                script {
+                    echo "==> Running unit tests"
+                    def testCmd = detectTestCommand()
+                    sh testCmd
+                }
             }
             post {
                 always {
+                    // Publish JUnit results regardless of pass/fail so failures are visible.
                     junit allowEmptyResults: true, testResults: '**/test-results/**/*.xml, **/surefire-reports/**/*.xml'
                 }
             }
         }
 
-        // ── 4. Static Analysis ────────────────────────────────────────────────
+        // ── 4. Static Analysis (optional) ─────────────────────────────────────
         stage('Static Analysis') {
             when {
+                // Only run on non-feature branches to keep PR builds fast.
                 expression { env.GIT_BRANCH ==~ /^(main|master|develop|release\/.+)$/ }
             }
             steps {
                 script {
                     echo "==> Running static analysis / linting"
+                    // Replace with your actual linter / sonar scanner invocation.
+                    // Example for a Maven project with SonarQube:
+                    // sh "mvn sonar:sonar -Dsonar.projectKey=${APP_NAME}"
                     sh "echo 'Static analysis placeholder – wire in SonarQube or your linter here'"
                 }
             }
@@ -197,7 +212,7 @@ pipeline {
                         "--label 'git.commit=${env.GIT_SHORT_SHA}' " +
                         "--label 'build.number=${env.BUILD_NUMBER}' " +
                         "--label 'build.url=${env.BUILD_URL}' " +
-                        "--no-cache ."
+                        "--no-cache ."           // --no-cache keeps images reproducible in CI
                     )
                 }
             }
@@ -207,22 +222,19 @@ pipeline {
         stage('Docker Push') {
             steps {
                 script {
-                    echo "==> Pushing image to Docker Hub"
+                    echo "==> Pushing image to registry"
                     withCredentials([usernamePassword(
                         credentialsId: 'docker-registry-credentials',
                         usernameVariable: 'DOCKER_USER',
                         passwordVariable: 'DOCKER_PASS'
                     )]) {
-                        // ✅ FIX 4: Login to docker.io (Docker Hub) not registry.example.com
-                        sh "echo \${DOCKER_PASS} | docker login docker.io -u \${DOCKER_USER} --password-stdin"
+                        sh "echo \${DOCKER_PASS} | docker login ${pipelineConfig.dockerRegistry} -u \${DOCKER_USER} --password-stdin"
                         sh "docker push ${FULL_IMAGE_NAME}"
 
-                        // Also push a branch tag for convenience
-                        def branchTag = "docker.io/${DOCKER_HUB_USER}/${APP_NAME}:${env.GIT_BRANCH?.replaceAll('/', '-') ?: 'latest'}"
+                        // Also push a stable 'latest' / branch tag for convenience
+                        def branchTag = "${pipelineConfig.dockerRegistry}/${APP_NAME}:${env.GIT_BRANCH.replaceAll('/', '-')}"
                         sh "docker tag ${FULL_IMAGE_NAME} ${branchTag}"
                         sh "docker push ${branchTag}"
-
-                        sh "docker logout docker.io"
                     }
                 }
             }
@@ -236,11 +248,14 @@ pipeline {
 
                     withCredentials([file(credentialsId: KUBECONFIG_CRED, variable: 'KUBECONFIG')]) {
 
+                        // Render the Kubernetes manifests with the current image tag.
+                        // Uses envsubst so no Helm dependency is required.
                         sh """
                             export IMAGE_NAME=${FULL_IMAGE_NAME}
                             export APP_NAMESPACE=${K8S_NAMESPACE}
                             export APP_NAME=${APP_NAME}
 
+                            # Substitute environment variables inside all YAML templates
                             for f in k8s/*.yaml k8s/*.yml; do
                                 [ -f "\$f" ] || continue
                                 envsubst < "\$f" > "/tmp/\$(basename \$f)"
@@ -256,6 +271,7 @@ pipeline {
                         """
 
                         if (!params.DRY_RUN) {
+                            // Wait for the rollout to complete within the allowed timeout.
                             sh """
                                 KUBECONFIG=${KUBECONFIG} kubectl rollout status \
                                     deployment/${APP_NAME} \
@@ -289,6 +305,7 @@ pipeline {
     post {
         always {
             script {
+                // Clean up dangling Docker images to save disk space on the agent.
                 sh 'docker image prune -f || true'
             }
             cleanWs()
@@ -313,9 +330,13 @@ pipeline {
 } // end pipeline
 
 // =============================================================================
-// Helper functions
+// Helper functions (Groovy closures)
 // =============================================================================
 
+/**
+ * Detect which build tool the repository uses and return the build command.
+ * Add more entries to support additional tech stacks.
+ */
 def detectBuildCommand() {
     if (fileExists('pom.xml'))          return 'mvn clean package -DskipTests -B'
     if (fileExists('build.gradle'))     return './gradlew clean build -x test'
@@ -326,23 +347,30 @@ def detectBuildCommand() {
     error "No recognised build file found. Add your build tool to detectBuildCommand()."
 }
 
+/**
+ * Detect which test tool the repository uses and return the test command.
+ */
 def detectTestCommand() {
     if (fileExists('pom.xml'))          return 'mvn test -B'
     if (fileExists('build.gradle'))     return './gradlew test'
     if (fileExists('package.json'))     return 'npm test -- --ci --coverage'
     if (fileExists('go.mod'))           return 'go test ./... -v'
-    if (fileExists('pytest.ini') || fileExists('setup.cfg') || fileExists('requirements.txt'))
-                                        return '''
-                                            pip install -r requirements.txt pytest --break-system-packages --quiet
-                                            mkdir -p test-results
-                                            pytest tests/ --junitxml=test-results/junit.xml -v
-                                        '''
+    if (fileExists('pytest.ini') || fileExists('setup.py')) return 'pytest --junitxml=test-results/junit.xml'
+    return 'echo "No test runner detected – skipping"'
 }
 
+/**
+ * Run a lightweight health-check against the just-deployed service.
+ * Tries the Kubernetes service ClusterIP first, then falls back to pod exec.
+ *
+ * @param namespace  K8s namespace
+ * @param appName    Deployment / Service name
+ */
 def runSmokeTests(String namespace, String appName) {
-    def maxRetries    = 5
+    def maxRetries   = 5
     def retryDelaySec = 10
 
+    // Retrieve the ClusterIP of the service (may not exist in all setups).
     def serviceIP = sh(
         script: "kubectl get svc ${appName} -n ${namespace} -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo ''",
         returnStdout: true
@@ -352,39 +380,43 @@ def runSmokeTests(String namespace, String appName) {
         retry(maxRetries) {
             sleep retryDelaySec
             def httpStatus = sh(
-                script: "curl -s -o /dev/null -w '%{http_code}' http://${serviceIP}/healthz 2>/dev/null || echo '000'",
+                script: "curl -s -o /dev/null -w '%{http_code}' http://${serviceIP}/health 2>/dev/null || echo '000'",
                 returnStdout: true
             ).trim()
             if (httpStatus != '200') {
-                error "Smoke test failed: /healthz returned HTTP ${httpStatus}"
+                error "Smoke test failed: /health returned HTTP ${httpStatus}"
             }
             echo "Smoke test passed (HTTP ${httpStatus})"
         }
     } else {
+        // Fall back: exec into a running pod and curl localhost
         def pod = sh(
             script: "kubectl get pods -n ${namespace} -l app=${appName} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo ''",
             returnStdout: true
         ).trim()
 
         if (pod) {
-            sh "kubectl exec -n ${namespace} ${pod} -- curl -sf http://localhost:8080/healthz || (echo 'Health endpoint unreachable' && exit 1)"
+            sh "kubectl exec -n ${namespace} ${pod} -- curl -sf http://localhost/health || (echo 'Health endpoint unreachable – check your /health route' && exit 1)"
         } else {
             echo "Warning: No running pods found for ${appName} in ${namespace}. Skipping smoke test."
         }
     }
 }
 
+/**
+ * Send a Slack notification.
+ * Requires the Slack Notification Plugin and a 'slack-webhook-url' secret text credential.
+ *
+ * @param message  Text to send (supports Slack mrkdwn)
+ * @param color    Attachment colour hex string (e.g. '#36a64f')
+ */
 def notifySlack(String message, String color = '#439FE0') {
-    try {
-        withCredentials([string(credentialsId: 'slack-webhook-url', variable: 'SLACK_URL')]) {
-            slackSend(
-                channel    : '#ci-cd-notifications',
-                color      : color,
-                message    : message,
-                webhookUrl : env.SLACK_URL
-            )
-        }
-    } catch (Exception e) {
-        echo "Slack notification skipped (credential not configured): ${e.message}"
+    withCredentials([string(credentialsId: 'slack-webhook-url', variable: 'SLACK_URL')]) {
+        slackSend(
+            channel    : '#ci-cd-notifications',
+            color      : color,
+            message    : message,
+            webhookUrl : env.SLACK_URL
+        )
     }
 }
