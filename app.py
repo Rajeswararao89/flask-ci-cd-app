@@ -44,8 +44,8 @@ def index():
     })
 
 
-@app.route("/healthz")
-def healthz():
+@app.route("/health")
+def health():
     """
     Kubernetes liveness + readiness probe.
     Returns 200 when the app is healthy.
