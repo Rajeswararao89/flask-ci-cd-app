@@ -1,0 +1,104 @@
+---
+# monitoring/prometheus-rules.yaml
+# Custom alerting rules for the CI/CD pipeline and deployed services.
+# Apply with: kubectl apply -f monitoring/prometheus-rules.yaml
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cicd-pipeline-alerts
+  namespace: monitoring
+  labels:
+    release: prometheus-stack   # must match your kube-prometheus-stack label selector
+spec:
+  groups:
+    # ── Deployment health alerts ───────────────────────────────────────────────
+    - name: deployment.rules
+      interval: 30s
+      rules:
+        - alert: DeploymentReplicasMismatch
+          expr: |
+            kube_deployment_spec_replicas
+              != kube_deployment_status_available_replicas
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Deployment {{ $labels.deployment }} has unavailable replicas"
+            description: >
+              Deployment {{ $labels.namespace }}/{{ $labels.deployment }}
+              has {{ $value }} available out of
+              {{ with printf "kube_deployment_spec_replicas{deployment='%s',namespace='%s'}" $labels.deployment $labels.namespace | query }}{{ . | first | value }}{{ end }} desired replicas.
+
+        - alert: PodCrashLooping
+          expr: rate(kube_pod_container_status_restarts_total[5m]) > 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod {{ $labels.pod }} is crash-looping"
+            description: "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} is restarting."
+
+        - alert: PodNotReady
+          expr: kube_pod_status_ready{condition="true"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.pod }} is not ready"
+
+    # ── Application SLO / health ───────────────────────────────────────────────
+    - name: application.rules
+      interval: 60s
+      rules:
+        - alert: HighErrorRate
+          expr: |
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+              /
+            sum(rate(http_requests_total[5m])) by (service)
+              > 0.05
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High HTTP 5xx error rate on {{ $labels.service }}"
+            description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+        - alert: HighResponseLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
+            ) > 1.0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p95 latency > 1s on {{ $labels.service }}"
+
+    # ── Resource saturation ────────────────────────────────────────────────────
+    - name: resource.rules
+      interval: 60s
+      rules:
+        - alert: HighCPUUsage
+          expr: |
+            sum(rate(container_cpu_usage_seconds_total{container!=""}[5m])) by (pod, namespace)
+              /
+            sum(kube_pod_container_resource_limits{resource="cpu"}) by (pod, namespace)
+              > 0.85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.pod }} CPU usage > 85% of limit"
+
+        - alert: HighMemoryUsage
+          expr: |
+            sum(container_memory_working_set_bytes{container!=""}) by (pod, namespace)
+              /
+            sum(kube_pod_container_resource_limits{resource="memory"}) by (pod, namespace)
+              > 0.85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.pod }} memory usage > 85% of limit"
