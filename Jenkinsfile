@@ -251,6 +251,8 @@ pipeline {
                         // Render the Kubernetes manifests with the current image tag.
                         // Uses envsubst so no Helm dependency is required.
                         sh """
+                            mkdir -p rendered-k8s
+                            
                             export IMAGE_NAME=${FULL_IMAGE_NAME}
                             export APP_NAMESPACE=${K8S_NAMESPACE}
                             export APP_NAME=${APP_NAME}
@@ -258,14 +260,14 @@ pipeline {
                             # Substitute environment variables inside all YAML templates
                             for f in k8s/*.yaml k8s/*.yml; do
                                 [ -f "\$f" ] || continue
-                                envsubst < "\$f" > "/tmp/\$(basename \$f)"
+                                envsubst < "\$f" > "rendered-k8s/\$(basename \$f)"
                             done
                         """
 
                         def dryRunFlag = params.DRY_RUN ? '--dry-run=client' : ''
 
                         sh """
-                            KUBECONFIG=${KUBECONFIG} kubectl apply -f /tmp/ \
+                            KUBECONFIG=${KUBECONFIG} kubectl apply -f rendered-k8s/ \
                                 --namespace=${K8S_NAMESPACE} \
                                 ${dryRunFlag}
                         """
