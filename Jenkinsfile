@@ -382,7 +382,7 @@ def runSmokeTests(String namespace, String appName) {
         retry(maxRetries) {
             sleep retryDelaySec
             def httpStatus = sh(
-                script: "curl -s -o /dev/null -w '%{http_code}' http://${serviceIP}/health 2>/dev/null || echo '000'",
+                script: "curl -s -o /dev/null -w '%{http_code}' http://${serviceIP}/healthz 2>/dev/null || echo '000'",
                 returnStdout: true
             ).trim()
             if (httpStatus != '200') {
@@ -398,7 +398,7 @@ def runSmokeTests(String namespace, String appName) {
         ).trim()
 
         if (pod) {
-            sh "kubectl exec -n ${namespace} ${pod} -- curl -sf http://localhost/health || (echo 'Health endpoint unreachable – check your /health route' && exit 1)"
+            sh "kubectl exec -n ${namespace} ${pod} -- curl -sf http://localhost/healthz || (echo 'Health endpoint unreachable – check your /health route' && exit 1)"
         } else {
             echo "Warning: No running pods found for ${appName} in ${namespace}. Skipping smoke test."
         }
