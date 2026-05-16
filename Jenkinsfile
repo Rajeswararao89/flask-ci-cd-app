@@ -232,7 +232,7 @@ pipeline {
                         sh "docker push ${FULL_IMAGE_NAME}"
 
                         // Also push a stable 'latest' / branch tag for convenience
-                        def branchTag = "${pipelineConfig.dockerRegistry}/${APP_NAME}:${env.GIT_BRANCH.replaceAll('/', '-')}"
+                        def branchTag = "docker.io/rajeshwararao78/${APP_NAME}:${env.GIT_BRANCH.replaceAll('/', '-')}"
                         sh "docker tag ${FULL_IMAGE_NAME} ${branchTag}"
                         sh "docker push ${branchTag}"
                     }
