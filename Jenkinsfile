@@ -154,15 +154,18 @@ pipeline {
 
         // ── 3. Unit Tests ─────────────────────────────────────────────────────
         stage('Unit Tests') {
-            when {
-                expression { !params.SKIP_TESTS }
-            }
-            steps {
-                script {
-                    echo "==> Running unit tests"
-                    def testCmd = detectTestCommand()
-                    sh testCmd
-                }
+           when {
+               expression { !params.SKIP_TESTS }
+           }
+           steps {
+               script {
+                   echo "==> Running unit tests"
+               }
+                   sh '''
+                    pip install pytest flask --break-system-packages -q
+                    mkdir -p test-results
+                    pytest tests/ --junitxml=test-results/junit.xml -v
+               '''
             }
             post {
                 always {
