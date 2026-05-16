@@ -4,7 +4,9 @@ FROM python:3.11-slim AS builder
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Install dependencies globally
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 
@@ -13,16 +15,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Non-root user for security
+# Create non-root user
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
-COPY --from=builder /root/.local /home/appuser/.local
+# Copy installed Python packages from builder
+COPY --from=builder /usr/local /usr/local
+
+# Copy application
 COPY --from=builder /app/app.py .
 
 RUN chown -R appuser:appgroup /app
+
 USER appuser
 
-ENV PATH=/home/appuser/.local/bin:$PATH
 ENV PORT=8080
 
 EXPOSE 8080
