@@ -335,10 +335,11 @@ pipeline {
 // Helper functions (Groovy closures)
 // =============================================================================
 
-/**
- * Detect which build tool the repository uses and return the build command.
- * Add more entries to support additional tech stacks.
- */
+ // This pipeline is intentionally tech-stack agnostic.
+ // detectBuildCommand() auto-detects Maven, Gradle, npm, Go, or Python
+ // based on files present in the repository root.
+ // The Flask app in this repo demonstrates the Python path.
+ 
 def detectBuildCommand() {
     if (fileExists('pom.xml'))          return 'mvn clean package -DskipTests -B'
     if (fileExists('build.gradle'))     return './gradlew clean build -x test'
