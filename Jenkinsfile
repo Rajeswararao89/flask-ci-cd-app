@@ -185,23 +185,21 @@ pipeline {
             }
         }
 
-        // ── 4. Static Analysis (optional) ─────────────────────────────────────
+        // ── 4. Static Analysis ─────────────────────────────────────
         stage('Static Analysis') {
-            when {
-                // Only run on non-feature branches to keep PR builds fast.
-                expression { env.GIT_BRANCH ==~ /^(main|master|develop|release\/.+)$/ }
-            }
             steps {
                 script {
-                    echo "==> Running static analysis / linting"
-                    // Replace with your actual linter / sonar scanner invocation.
-                    // Example for a Maven project with SonarQube:
-                    // sh "mvn sonar:sonar -Dsonar.projectKey=${APP_NAME}"
-                    sh "echo 'Static analysis placeholder – wire in SonarQube or your linter here'"
-                }
+                    echo "==> Running static analysis with flake8"
+                    sh """
+                        . venv/bin/activate
+                        pip install flake8 --quiet
+                        echo "--- flake8 results ---"
+                        flake8 app.py --max-line-length=100 --statistics || true
+                        echo "--- Static analysis complete ---"
+                    """
+               }
             }
         }
-
         // ── 5. Docker Build ───────────────────────────────────────────────────
         stage('Docker Build') {
             steps {
