@@ -301,7 +301,22 @@ pipeline {
         }
         failure {
             script {
-                notifySlack("*FAILURE* | ${APP_NAME} build #${env.BUILD_NUMBER} failed\n${env.BUILD_URL}", '#ff0000')
+                try {
+                    withCredentials([file(credentialsId: KUBECONFIG_CRED, variable: 'KUBECONFIG')]) {
+                        echo "==> Rolling back ${APP_NAME} in ${K8S_NAMESPACE}..."
+                        sh """
+                            kubectl rollout undo deployment/${APP_NAME} \
+                                --namespace=${K8S_NAMESPACE}
+                            kubectl rollout status deployment/${APP_NAME} \
+                                --namespace=${K8S_NAMESPACE} \
+                                --timeout=120s
+                        """
+                        echo "==> Rollback complete."
+                    }
+                } catch (Exception e) {
+                    echo "Rollback skipped (pipeline failed before deploy): ${e.getMessage()}"
+                }
+                notifySlack("*FAILED + ROLLED BACK* | ${APP_NAME} build #${env.BUILD_NUMBER}\n${env.BUILD_URL}", '#ff0000')
             }
         }
         unstable {
