@@ -213,13 +213,15 @@ pipeline {
                     echo "==> Scanning ${FULL_IMAGE_NAME} for vulnerabilities..."
                     // Install trivy if not present on the agent
                     sh '''
-                        if ! command -v trivy &> /dev/null; then
-                            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+                        if ! command -v trivy &> /dev/null && [ ! -f "$HOME/bin/trivy" ]; then
+                            mkdir -p $HOME/bin
+                            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $HOME/bin
                         fi
+                        export PATH=$HOME/bin:$PATH
                     '''
                     // Fail the build on CRITICAL vulnerabilities, warn on HIGH
                     sh """
-                        trivy image \
+                        $HOME/bin/trivy image \
                             --exit-code 1 \
                             --severity CRITICAL \
                             --no-progress \
@@ -228,7 +230,7 @@ pipeline {
                     """
                     // Full report saved as artifact for review
                     sh """
-                        trivy image \
+                        $HOME/bin/trivy image \
                             --format json \
                             --output trivy-report.json \
                             --severity HIGH,CRITICAL \
