@@ -1,7 +1,9 @@
 # CI/CD Pipeline — Git + Jenkins + Kubernetes
 
 > **Submission for:** SRE Intern Problem Statement
+> 
 > **Stack:** Git · Jenkins (Groovy Declarative Pipeline) · Docker · Kubernetes (k3s) · Python Flask
+> 
 > Automated CI/CD pipeline that builds, tests, containerizes, and deploys a Python Flask
 > application to Kubernetes on every git push — with zero manual intervention.
 
@@ -73,7 +75,7 @@ Branch → environment mapping (automatic):
 
 ```bash
 # 1. Clone this repo
-git clone https://github.com/Rajeswararao89/flask-ci-cd-app.git
+git clone https://github.com/Rajeswararao89/jenkins-k8s-pipeline.git
 cd flask-ci-cd-app
 
 # 2. Follow docs/SETUP_GUIDE.md to configure Jenkins + credentials
