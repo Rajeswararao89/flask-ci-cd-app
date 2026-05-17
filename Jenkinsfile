@@ -411,12 +411,16 @@ def runSmokeTests(String namespace, String appName) {
  * @param color    Attachment colour hex string (e.g. '#36a64f')
  */
 def notifySlack(String message, String color = '#439FE0') {
-    withCredentials([string(credentialsId: 'slack-webhook-url', variable: 'SLACK_URL')]) {
-        slackSend(
-            channel    : '#ci-cd-notifications',
-            color      : color,
-            message    : message,
-            webhookUrl : env.SLACK_URL
-        )
+    try {
+        withCredentials([string(credentialsId: 'slack-webhook-url', variable: 'SLACK_URL')]) {
+            slackSend(
+                channel    : '#ci-cd-notifications',
+                color      : color,
+                message    : message,
+                webhookUrl : env.SLACK_URL
+            )
+        }
+    } catch (Exception e) {
+        echo "Slack notification skipped (credential not configured): ${e.message}"
     }
 }
