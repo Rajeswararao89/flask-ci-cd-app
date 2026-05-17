@@ -191,7 +191,6 @@ pipeline {
                 script {
                     echo "==> Running static analysis with flake8"
                     sh """
-                        . venv/bin/activate
                         pip install flake8 --quiet
                         echo "--- flake8 results ---"
                         flake8 app.py --max-line-length=100 --statistics || true
