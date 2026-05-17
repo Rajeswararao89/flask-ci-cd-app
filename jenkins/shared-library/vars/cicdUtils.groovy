@@ -1,22 +1,19 @@
-/**
- * jenkins/shared-library/vars/cicdUtils.groovy
- *
- * Jenkins Shared Library – utility functions that can be reused across
- * multiple Jenkinsfiles in your organisation.
- *
- * Setup:
- *   1. Create a Git repository called e.g. 'cicd-shared-lib'.
- *   2. Put this file at vars/cicdUtils.groovy inside that repo.
- *   3. In Jenkins → Manage Jenkins → Configure System → Global Pipeline Libraries,
- *      add the library pointing to your repo.
- *   4. In any Jenkinsfile: @Library('cicd-shared-lib') _
- *      Then call: cicdUtils.detectBuildCommand() etc.
- */
+// jenkins/shared-library/vars/cicdUtils.groovy
+//
+// Shared library with helper functions used across multiple Jenkinsfiles.
+// Keeps the main Jenkinsfile clean and avoids copy-pasting the same logic
+// into every repo.
+//
+// How to set this up:
+//   1. Create a repo called 'cicd-shared-lib' (or whatever name you prefer)
+//   2. Put this file at vars/cicdUtils.groovy inside that repo
+//   3. Go to Jenkins -> Manage Jenkins -> Configure System -> Global Pipeline Libraries
+//      and point it at your repo
+//   4. At the top of any Jenkinsfile add: @Library('cicd-shared-lib') _
+//      then just call cicdUtils.detectBuildCommand() etc.
 
-/**
- * Build-tool auto-detection.
- * Returns the shell command string needed to compile the project.
- */
+// figures out how to build the project based on what files exist
+// add a new entry here if you need to support another stack
 def detectBuildCommand() {
     if (fileExists('pom.xml'))             return 'mvn clean package -DskipTests -B'
     if (fileExists('build.gradle'))        return './gradlew clean build -x test'
@@ -31,9 +28,7 @@ def detectBuildCommand() {
     error "detectBuildCommand: no recognised build file found in workspace root."
 }
 
-/**
- * Test-runner auto-detection.
- */
+// same idea but for tests - picks the right runner automatically
 def detectTestCommand() {
     if (fileExists('pom.xml'))             return 'mvn test -B'
     if (fileExists('build.gradle') || fileExists('build.gradle.kts'))
@@ -47,11 +42,9 @@ def detectTestCommand() {
     return 'echo "No test runner detected – skipping unit tests"'
 }
 
-/**
- * Run static analysis / linting based on detected tech stack.
- * Supports Python, Node/Yarn, Maven, Go, Gradle, and Rust.
- * Safe to call on any repo — falls back gracefully if no linter is configured.
- */
+// runs a linter based on what stack the repo uses
+// the || true at the end means lint warnings won't fail the build
+// change that if you want to enforce clean code strictly
 def runStaticAnalysis() {
     if (fileExists('requirements.txt') || fileExists('setup.py') || fileExists('pyproject.toml')) {
         sh 'pip3 install flake8 --quiet && flake8 . --max-line-length=100 --statistics || true'
@@ -70,12 +63,12 @@ def runStaticAnalysis() {
     }
 }
 
-/**
- * Render Kubernetes YAML templates by substituting environment variables.
- *
- * @param srcDir   directory containing *.yaml / *.yml template files
- * @param destDir  directory where rendered files are written (default: /tmp/k8s-rendered)
- */
+// runs envsubst on all YAML files in srcDir and writes them to destDir
+// this is how we inject the image tag and namespace into the K8s manifests
+// without needing Helm
+//
+// @param srcDir   where your template YAML files live (default: k8s/)
+// @param destDir  where to write the rendered files
 def renderK8sTemplates(String srcDir = 'k8s', String destDir = '/tmp/k8s-rendered') {
     sh """
         mkdir -p ${destDir}
@@ -87,14 +80,13 @@ def renderK8sTemplates(String srcDir = 'k8s', String destDir = '/tmp/k8s-rendere
     """
 }
 
-/**
- * Apply rendered Kubernetes manifests to the target cluster.
- *
- * @param renderedDir   directory of rendered YAML files
- * @param namespace     Kubernetes namespace
- * @param kubeconfigVar environment variable name holding the kubeconfig path
- * @param dryRun        if true, pass --dry-run=client (validate only)
- */
+// applies the rendered manifests to the cluster
+// pass dryRun=true to validate without actually deploying anything
+//
+// @param renderedDir   folder with the processed YAML files
+// @param namespace     which K8s namespace to deploy into
+// @param kubeconfigVar env var name that holds the kubeconfig path
+// @param dryRun        set to true to do a dry run
 def applyManifests(String renderedDir, String namespace, String kubeconfigVar = 'KUBECONFIG', Boolean dryRun = false) {
     def dryRunFlag = dryRun ? '--dry-run=client' : ''
     sh """
@@ -104,13 +96,12 @@ def applyManifests(String renderedDir, String namespace, String kubeconfigVar = 
     """
 }
 
-/**
- * Wait for a Deployment rollout to complete.
- *
- * @param deploymentName  name of the Kubernetes Deployment
- * @param namespace       target namespace
- * @param timeoutMinutes  how long to wait before failing the stage
- */
+// blocks until the deployment finishes rolling out or the timeout hits
+// if it times out, the stage fails and Jenkins marks the build as failed
+//
+// @param deploymentName  name of the K8s Deployment resource
+// @param namespace       namespace it lives in
+// @param timeoutMinutes  how long to wait
 def waitForRollout(String deploymentName, String namespace, Integer timeoutMinutes = 5) {
     sh """
         kubectl rollout status deployment/${deploymentName} \
@@ -119,13 +110,12 @@ def waitForRollout(String deploymentName, String namespace, Integer timeoutMinut
     """
 }
 
-/**
- * Tag and push a Docker image to the configured registry.
- *
- * @param localImage   image name as built locally
- * @param registry     registry base URL
- * @param credId       Jenkins credential ID (Username/Password)
- */
+// logs into the registry and pushes the image
+// credentials come from Jenkins credential store, never hardcoded
+//
+// @param localImage  the image name as it was built
+// @param registry    registry host (e.g. docker.io)
+// @param credId      Jenkins credential ID for the registry login
 def pushDockerImage(String localImage, String registry, String credId = 'docker-registry-credentials') {
     withCredentials([usernamePassword(credentialsId: credId, usernameVariable: 'REG_USER', passwordVariable: 'REG_PASS')]) {
         sh """
@@ -135,14 +125,13 @@ def pushDockerImage(String localImage, String registry, String credId = 'docker-
     }
 }
 
-/**
- * Send a Slack message.  Requires the Slack Notification Plugin.
- *
- * @param message  Slack mrkdwn message text
- * @param color    Hex color for the attachment bar
- * @param channel  Slack channel (default: #ci-cd-notifications)
- * @param credId   Jenkins credential holding the webhook URL
- */
+// sends a Slack message - wraps in try/catch so a missing credential
+// doesn't fail the whole build
+//
+// @param message  the message text (supports Slack markdown)
+// @param color    color of the attachment bar on the left
+// @param channel  which channel to post to
+// @param credId   Jenkins credential ID holding the webhook URL
 def notifySlack(String message, String color = '#439FE0',
                 String channel = '#ci-cd-notifications',
                 String credId = 'slack-webhook-url') {
@@ -155,13 +144,9 @@ def notifySlack(String message, String color = '#439FE0',
     }
 }
 
-/**
- * Determine the deployment environment from the branch name.
- * Convention:
- *   main / master  → prod
- *   release/*      → staging
- *   everything else → dev
- */
+// maps branch name to deployment environment
+// main/master goes to prod, release/* goes to staging, everything else to dev
+// this is called automatically so you don't have to set DEPLOY_ENV manually
 def envFromBranch(String branch) {
     if (branch ==~ /^(main|master)$/)       return 'prod'
     if (branch ==~ /^release\/.+$/)         return 'staging'
