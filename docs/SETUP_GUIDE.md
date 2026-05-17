@@ -5,12 +5,11 @@
 This repository contains a production-ready **CI/CD pipeline** built on Git, Jenkins, and Kubernetes.
 Every commit to a watched branch automatically triggers a build, runs tests, packages a Docker image,
 and rolls it out to the Kubernetes cluster — all without manual intervention.
-'''
+```
 Developer pushes code
 │
 ▼
 GitHub Webhook (via ngrok tunnel)
-'''
 │
 ▼
 Jenkins Pipeline
@@ -23,10 +22,11 @@ Jenkins Pipeline
 ▼
 k3s Kubernetes Cluster
 (dev / staging / production namespaces)
-
+```
 ---
 
 ## Repository Structure
+```
 .
 ├── Jenkinsfile                          # Main declarative pipeline (9 stages)
 ├── Dockerfile                           # Multi-stage container build (non-root)
@@ -45,6 +45,7 @@ k3s Kubernetes Cluster
 │   └── test_app.py                      # pytest unit tests
 └── docs/
 └── SETUP_GUIDE.md                   # This file
+```
 
 ---
 
