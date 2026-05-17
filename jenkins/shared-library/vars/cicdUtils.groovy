@@ -48,6 +48,29 @@ def detectTestCommand() {
 }
 
 /**
+ * Run static analysis / linting based on detected tech stack.
+ * Supports Python, Node/Yarn, Maven, Go, Gradle, and Rust.
+ * Safe to call on any repo — falls back gracefully if no linter is configured.
+ */
+def runStaticAnalysis() {
+    if (fileExists('requirements.txt') || fileExists('setup.py') || fileExists('pyproject.toml')) {
+        sh 'pip3 install flake8 --quiet && flake8 . --max-line-length=100 --statistics || true'
+    } else if (fileExists('package.json') || fileExists('yarn.lock')) {
+        sh 'npm run lint || true'
+    } else if (fileExists('pom.xml')) {
+        sh 'mvn checkstyle:check -B || true'
+    } else if (fileExists('go.mod')) {
+        sh 'go vet ./... || true'
+    } else if (fileExists('build.gradle') || fileExists('build.gradle.kts')) {
+        sh './gradlew checkstyleMain || true'
+    } else if (fileExists('Cargo.toml')) {
+        sh 'cargo clippy || true'
+    } else {
+        echo "No linter configured for this stack — skipping static analysis"
+    }
+}
+
+/**
  * Render Kubernetes YAML templates by substituting environment variables.
  *
  * @param srcDir   directory containing *.yaml / *.yml template files
