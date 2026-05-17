@@ -5,10 +5,12 @@
 This repository contains a production-ready **CI/CD pipeline** built on Git, Jenkins, and Kubernetes.
 Every commit to a watched branch automatically triggers a build, runs tests, packages a Docker image,
 and rolls it out to the Kubernetes cluster — all without manual intervention.
+'''
 Developer pushes code
 │
 ▼
 GitHub Webhook (via ngrok tunnel)
+'''
 │
 ▼
 Jenkins Pipeline
