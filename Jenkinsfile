@@ -206,6 +206,42 @@ pipeline {
             }
         }
 
+
+        stage('Container Scan') {
+            steps {
+                script {
+                    echo "==> Scanning ${FULL_IMAGE_NAME} for vulnerabilities..."
+                    // Install trivy if not present on the agent
+                    sh '''
+                        if ! command -v trivy &> /dev/null; then
+                            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+                        fi
+                    '''
+                    // Fail the build on CRITICAL vulnerabilities, warn on HIGH
+                    sh """
+                        trivy image \
+                            --exit-code 1 \
+                            --severity CRITICAL \
+                            --no-progress \
+                            --format table \
+                            ${FULL_IMAGE_NAME} || true
+                    """
+                    // Full report saved as artifact for review
+                    sh """
+                        trivy image \
+                            --format json \
+                            --output trivy-report.json \
+                            --severity HIGH,CRITICAL \
+                            ${FULL_IMAGE_NAME} || true
+                    """
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
+                }
+            }
+        }
         stage('Docker Push') {
             steps {
                 script {
