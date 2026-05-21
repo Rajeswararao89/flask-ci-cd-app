@@ -292,6 +292,7 @@ pipeline {
                         sh """
                             KUBECONFIG=${KUBECONFIG} kubectl apply -f rendered-k8s/ \
                                 --namespace=${K8S_NAMESPACE} \
+                                --validate=false \
                                 ${dryRunFlag}
                         """
 
